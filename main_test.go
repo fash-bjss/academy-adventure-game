@@ -2,6 +2,7 @@ package main
 
 import (
 	"academy-adventure-game/describable"
+	globalgame "academy-adventure-game/global-game"
 	"academy-adventure-game/structs"
 	"bytes"
 	"fmt"
@@ -784,7 +785,7 @@ func TestShowCommands(t *testing.T) {
 	original := os.Stdout
 	os.Stdout = w
 
-	showCommands()
+	globalgame.ShowCommands()
 
 	w.Close()
 	os.Stdout = original
