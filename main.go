@@ -1,309 +1,17 @@
 package main
 
 import (
+	globalgame "academy-adventure-game/global-game"
+	"academy-adventure-game/structs"
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 )
-
-func clearScreen() {
-    var cmd *exec.Cmd
-    if runtime.GOOS == "windows" {
-        cmd = exec.Command("cmd", "/c", "cls")
-    } else {
-        cmd = exec.Command("clear")
-    }
-    cmd.Stdout = os.Stdout
-    cmd.Run()
-}
 
 type Describable interface {
 	SetDescription(description string)
 	GetDescription() string
-}
-
-type Item struct {
-	Name string
-	Description string
-	Weight int
-	Hidden bool
-}
-
-func (i *Item) SetDescription(description string) {
-    i.Description = description
-}
-
-func (i *Item) GetDescription() string {
-    return i.Description
-}
-
-type Room struct {
-	Name string
-	Description string
-	Exits map[string]*Room
-	Items map[string]*Item
-	Entities map[string]*Entity
-}
-
-func (r *Room) SetDescription(description string) {
-    r.Description = description
-}
-
-func (r *Room) GetDescription() string {
-    return r.Description
-}
-
-type Player struct {
-	CurrentRoom *Room
-	Inventory   map[string]*Item
-	CurrentEntity *Entity
-	CarriedWeight int
-	AvailableWeight int
-}
-
-type Entity struct {
-	Name string
-	Description string
-	Hidden bool
-}
-
-type Event struct {
-	Description string
-	Outcome string
-	Triggered bool
-}
-
-type Interaction struct {
-	ItemName string
-	EntityName string
-	Event *Event
-}
-
-var validInteractions = []*Interaction{}
-
-func (e *Entity) SetDescription(description string) {
-    e.Description = description
-}
-
-func (e *Entity) GetDescription() string {
-    return e.Description
-}
-
-func (p *Player) Move(direction string) {
-	if p.CurrentEntity != nil {
-		p.CurrentEntity = nil
-	}
-	if newRoom, ok := p.CurrentRoom.Exits[direction]; ok {
-		p.CurrentRoom = newRoom
-
-		fmt.Printf("You are in %s\n", p.CurrentRoom.Name)
-	} else {
-		fmt.Println("You can't go that way!")
-	}
-}
-
-var plateOrder = []string{"first-plate", "second-plate", "third-plate", "fourth-plate", "fifth-plate", "sixth-plate"}
-var currentPlateIndex = 0
-var gameOver = false
-
-
-func (p *Player) Take(itemName string) {
-	item, ok := p.CurrentRoom.Items[itemName]
-	switch {
-	case !ok || item.Hidden:
-		fmt.Printf("You can't take %s\n", itemName)
-		return
-	case p.AvailableWeight < item.Weight:
-		fmt.Println("Weight limit reached! Please drop an item before taking more.")
-		return
-	case isPlate(itemName):
-		if itemName == plateOrder[currentPlateIndex] {
-			p.Inventory[item.Name] = item
-			p.ChangeCarriedWeight(item, "increase")
-			delete(p.CurrentRoom.Items, item.Name)
-			currentPlateIndex++
-
-			fmt.Printf("%s has been added to your inventory.\n", item.Name)
-		} else {
-			fmt.Println("As you attempt to grab the greasy plates without removing the ones stacked above them, they slip from your grasp and shatter, creating a chaotic mess.\n\nNow Rosie is very grumpy.")
-			gameOver = true
-		}
-		
-	default:
-		p.Inventory[item.Name] = item
-		p.ChangeCarriedWeight(item, "increase")
-		delete(p.CurrentRoom.Items, item.Name)
-
-		fmt.Printf("%s has been added to your inventory.\n", item.Name)
-	}
-}
-
-func isPlate(itemName string) bool {
-    for _, plate := range plateOrder {
-        if itemName == plate {
-            return true
-        }
-    }
-    return false
-}
-
-func (p *Player) ChangeCarriedWeight(item *Item, operation string) {
-	switch {
-	case operation == "increase":
-		p.CarriedWeight += item.Weight
-		p.AvailableWeight -= item.Weight
-		return
-	case operation == "decrease":
-		p.CarriedWeight -= item.Weight
-		p.AvailableWeight += item.Weight
-		return
-	}
-}
-
-func (p *Player) Drop(itemName string) {
-	if item, ok := p.Inventory[itemName]; ok {
-		if isPlate(itemName) {
-			println("You can't just leave those plates lying around! It's time to load them into the dishwasher!")
-			return
-		}
-
-		delete(p.Inventory, item.Name)
-		p.ChangeCarriedWeight(item, "decrease")
-		p.CurrentRoom.Items[item.Name] = item
-
-		fmt.Printf("You dropped %s.\n", item.Name)
-	} else {
-		fmt.Printf("You don't have %s.\n", itemName)
-	}
-}
-
-func (p *Player) ShowInventory() {
-	if len(p.Inventory) == 0 {
-		fmt.Printf("Your inventory is empty.\nAvailable space: %d\n", p.AvailableWeight)
-		return
-	}
-	fmt.Printf("Available space: %d\nYour inventory contains:\n", p.AvailableWeight)
-	for itemName, item := range p.Inventory {
-		fmt.Printf("- %s: %s Weight: %d\n", itemName, item.Description, item.Weight)
-	}
-}
-
-func (p *Player) ShowRoom() {
-    fmt.Printf("You are in %s\n\n%s\n", p.CurrentRoom.Name, p.CurrentRoom.Description)
-
-	if p.EntitiesArePresent() {
-			fmt.Println("\nYou can approach:")
-			for _, entity := range p.CurrentRoom.Entities {
-				switch {
-				case p.CurrentEntity != nil:
-					if entity.Name == p.CurrentEntity.Name {
-						fmt.Printf("- %s (currently approached)\n", entity.Name)
-					} else if !entity.Hidden{
-						fmt.Printf("- %s\n", entity.Name)
-					}
-				default:
-					if !entity.Hidden{
-						fmt.Printf("- %s\n", entity.Name)
-					}
-				}
-			}
-		}
-		
-	if p.ItemsArePresent() {
-			fmt.Println("\nThe room contains:")
-			for itemName, item := range p.CurrentRoom.Items {
-				if !item.Hidden {
-					fmt.Printf("- %s: %s Weight: %d\n", itemName, item.Description, item.Weight)
-				}
-			}
-		}
-	}
-
-	
-
-func (p *Player) ItemsArePresent() bool {
-	if len(p.CurrentRoom.Items) != 0 {
-	for _, item := range p.CurrentRoom.Items {
-		if !item.Hidden {
-			return true
-		}
-	}
-}
-	return false
-}
-
-func (p *Player) EntitiesArePresent() bool {
-	if len(p.CurrentRoom.Entities) != 0 {
-	for _, entity := range p.CurrentRoom.Entities {
-		if !entity.Hidden {
-			return true
-		}
-	}
-}
-	return false
-}
-
-
-func (p *Player) Approach(entityName string) {
-	if p.CurrentEntity != nil {
-		p.CurrentEntity = nil
-	}
-	if entity, ok := p.CurrentRoom.Entities[entityName]; ok && !entity.Hidden{
-
-		p.CurrentEntity = entity
-		fmt.Println(entity.Description)
-	} else {
-		fmt.Printf("You can't approach %s.\n", entityName)
-	}
-}
-
-func (p *Player) Leave() {
-	if p.CurrentEntity != nil {
-		p.CurrentEntity = nil
-		p.ShowRoom()
-	} else {
-		fmt.Println("You have not approached anything. If you wish to leave the game, use the exit command.")
-	}
-}
-
-func (p *Player) ShowMap() {
-	for direction, exit := range p.CurrentRoom.Exits {
-		fmt.Printf("%s: %s\n", direction, exit.Name)
-	}
-}
-
-func (p *Player) Use(itemName string, target string) {
-	if p.CurrentEntity == nil {
-		fmt.Println("Approach to use an item.")
-		return
-	}	
-	if p.CurrentEntity.Name == target {
-		if _, ok := p.Inventory[itemName]; ok {
-				for _, interaction := range validInteractions {
-					if interaction.ItemName == itemName && interaction.EntityName == target {
-						p.TriggerEvent(interaction.Event)
-						p.ChangeCarriedWeight(p.Inventory[itemName], "decrease")
-						delete(p.Inventory, itemName)
-						return
-					}
-				}
-		} else {
-			fmt.Printf("You don't have %s.\n", itemName)
-			return
-		}
-	} else {
-		fmt.Printf("%s not found.\n", target)
-		return
-	}
-	fmt.Printf("You can't use %s on %s.\n", itemName, target)
-}
-
-func (p *Player) TriggerEvent(event *Event) {
-	fmt.Println(event.Outcome)
-	event.Triggered = true
 }
 
 func updateDescription(d Describable, newDescription string) {
@@ -317,78 +25,40 @@ func showCommands() {
 func main() {
 	introduction := "It's the last day at the Academy, and you and your fellow graduates are ready to take on the final hack-day challenge.\nHowever, this time, it's different. Alan and Dan, your instructors, have prepared something more intense than ever before — a true test of your problem-solving and coding skills.\nThe doors to the academy are locked, the windows sealed. The only way out is to find and solve a series of riddles that lead to the terminal in a hidden room.\nThe challenge? Crack the code on the terminal to unlock the doors. But it's not that simple.\nYou'll need to gather items, approach Alan and Dan for cryptic tips, and outsmart the obstacles they've laid out for you.\nAs the tension rises, only your wits, teamwork, and knowledge can guide you to freedom.\nAre you ready to escape?\nOh and remember... You don't want to make Rosie grumpy! So don't do anything crazy.\n\nif at any point you feel lost, type 'commands' to display the list of all commands.\nThe command 'look' is always useful to get your bearings and see the options available to you.\nThe command 'exit' will make you quit the game at any time. Make sure you do mean to use it, or you will inadvertently lose all of your progress!"
 
-	introductionShown:= false
+	introductionShown := false
 
-	validInteractions = []*Interaction{
-		{
-			ItemName:   "tea",
-			EntityName: "rosie",
-			Event:      &Event{Description: "get-your-lanyard", Outcome: "Cheers! I needed that... by the way, where is your lanyard? I must have forgotten to give it to you.\nYou'll need that to move between rooms, here it is.\n\n(lanyard can now be found in the room).\n", Triggered: false},
-		},
-		{
-			ItemName: "first-plate",
-			EntityName: "dishwasher",
-			Event: &Event{Description: "first-plate-loaded", Outcome: "You loaded the first plate into the dishwasher.", Triggered: false},
-		},
-		{
-			ItemName: "second-plate",
-			EntityName: "dishwasher",
-			Event: &Event{Description: "second-plate-loaded", Outcome: "You loaded the second plate into the dishwasher.", Triggered: false},
-		},
-		{
-			ItemName: "third-plate",
-			EntityName: "dishwasher",
-			Event: &Event{Description: "third-plate-loaded", Outcome: "You loaded the third plate into the dishwasher.", Triggered: false},
-		},
-		{
-			ItemName: "fourth-plate",
-			EntityName: "dishwasher",
-			Event: &Event{Description: "fourth-plate-loaded", Outcome: "You loaded the fourth plate into the dishwasher.", Triggered: false},
-		},
-		{
-			ItemName: "fifth-plate",
-			EntityName: "dishwasher",
-			Event: &Event{Description: "fifth-plate-loaded", Outcome: "You loaded the fifth plate into the dishwasher.", Triggered: false},
-		},
-		{
-			ItemName: "sixth-plate",
-			EntityName: "dishwasher",
-			Event: &Event{Description: "sixth-plate-loaded", Outcome: "You loaded the sixth plate into the dishwasher.", Triggered: false},
-		},
-	}
+	dishwasherChallengeWon := &structs.Event{Description: "dishwasher-loaded", Outcome: "You load the dirty plates into the dishwasher and switch it on, a feeling of being used washing over you.\nThis challenge felt less like teamwork and more like being roped into someone else's mess.\nWith a sigh, you decide to head back to Alan to see if this effort has truly led you to victory...\n", Triggered: false}
 
-	dishwasherChallengeWon := &Event{Description: "dishwasher-loaded", Outcome: "You load the dirty plates into the dishwasher and switch it on, a feeling of being used washing over you.\nThis challenge felt less like teamwork and more like being roped into someone else's mess.\nWith a sigh, you decide to head back to Alan to see if this effort has truly led you to victory...\n", Triggered: false}
+	grumpyRosie := &structs.Event{Description: "rosie-is-grumpy", Outcome: "Rosie caught you in the act of swiping a lanyard from a fellow student.\nYou have made Rosie grumpy and you've lost the game.\n", Triggered: false}
 
-	grumpyRosie := &Event{Description: "rosie-is-grumpy", Outcome: "Rosie caught you in the act of swiping a lanyard from a fellow student.\nYou have made Rosie grumpy and you've lost the game.\n", Triggered: false}
-
-	unlockComputer := &Event{Description: "computer-is-unlocked", Outcome: "You enter the password, holding your breath. Yes! The screen flickers to life.\nyou've unlocked the computer and now have full access.\n\nYou should approach Alan to find out what's next...\n", Triggered: false}
+	unlockComputer := &structs.Event{Description: "computer-is-unlocked", Outcome: "You enter the password, holding your breath. Yes! The screen flickers to life.\nyou've unlocked the computer and now have full access.\n\nYou should approach Alan to find out what's next...\n", Triggered: false}
 
 	computerPassword := "iiwsccrtc"
 
 	remainingPasswordAttempts := 10
 
-	staffRoom := Room{
+	staffRoom := structs.Room{
 		Name:        "break-room",
 		Description: "A cozy lounge designed for both academy students and tutors, offering a welcoming space to unwind and socialise.\nComfortable seating invites you to relax, while the warm ambiance encourages lively conversations and friendly exchanges.",
-		Items:      make(map[string]*Item),
-		Entities:   make(map[string]*Entity),
-		Exits:      make(map[string]*Room),
+		Items:       make(map[string]*structs.Item),
+		Entities:    make(map[string]*structs.Entity),
+		Exits:       make(map[string]*structs.Room),
 	}
 
-	codingLab := Room{
+	codingLab := structs.Room{
 		Name:        "coding-lab",
 		Description: "A bright, tech-filled room with sleek workstations, whiteboards, and collaborative spaces.\nThe air buzzes with creativity as students code, share ideas, and tackle challenges together.",
-		Items:      make(map[string]*Item),
-		Entities:   make(map[string]*Entity),
-		Exits:      make(map[string]*Room),
+		Items:       make(map[string]*structs.Item),
+		Entities:    make(map[string]*structs.Entity),
+		Exits:       make(map[string]*structs.Room),
 	}
 
-	terminalRoom := Room{
+	terminalRoom := structs.Room{
 		Name:        "terminal-room",
 		Description: "As you step into the terminal room, you're greeted by the soft hum of machines and the flickering glow of monitors lining the walls.\n\nThe air is charged with a sense of urgency, filled with the scent of freshly brewed coffee mingling with the faint odor of electrical components.\n\nIn the center of the room, a sleek, state-of-the-art terminal stands atop a polished wooden desk.",
-		Items:      make(map[string]*Item),
-		Entities:   make(map[string]*Entity),
-		Exits:      make(map[string]*Room),
+		Items:       make(map[string]*structs.Item),
+		Entities:    make(map[string]*structs.Entity),
+		Exits:       make(map[string]*structs.Room),
 	}
 
 	staffRoom.Exits["south"] = &codingLab
@@ -396,27 +66,27 @@ func main() {
 	codingLab.Exits["east"] = &terminalRoom
 	terminalRoom.Exits["west"] = &codingLab
 
-	rosie := Entity{Name: "rosie", Description: "Ugh, what? Sorry, I can't think straight without a brew. Get me some tea, and then we'll talk...", Hidden: false}
-	kettle := Entity{Name: "kettle", Description: "You set the kettle to boil, brewing the strongest cup of tea you've ever made. A comforting aroma fills the room as the tea is now ready.\n\n(tea can now be found in the room)\n", Hidden: false}
-	sofa := Entity{Name: "sofa", Description: "You come across one of your fellow academy students fast asleep on the sofa. Next to them, their lanyard lies carelessly within reach.\nYou know you shouldn't take it, but the temptation lingers...\n\n(abandoned-lanyard can now be found in the room)\n", Hidden: false}
-	tea := Item{Name: "tea", Description: "A steaming cup of Yorkshire tea, rich and comforting.", Weight: 2, Hidden: true}
-	lanyard := Item{Name: "lanyard", Description: "Your lanyard, a key to unlocking any door within the building.", Weight: 1, Hidden: true}
-	abandonedLanyard := Item{Name: "abandoned-lanyard", Description: "An abandoned lanyard, a key to unlocking any door within the building.", Weight: 1, Hidden: true}
-	computer := Entity{Name: "computer", Description: "Alan's computer. You need the password to get in.\n\nRemaining attempts: 10.\n\nType 'leave' to stop entering the password.\n\nEnter the password:\n", Hidden: false}
-	alan := Entity{Name: "alan", Description: "Oh, you've finally made it... What are you waiting for, crack on with the code. The computer is right there...\nWhat's that? You don't know the password? Hmm... I seem to have forgotten it myself, but I do recall it's nine letters long.\nAnd for the love of all that's good, it's definitely not 'waterfall'!", Hidden: false}
-	agileManifesto := Entity{Name: "agile-manifesto", Description: "A large, framed document hangs prominently on the wall, its edges slightly frayed\nYou can almost feel the energy of past brainstorming sessions in the air as you read the four key values:\n\nIndividuals and Interactions over processes and tools.\n\nWorking Software over comprehensive documentation.\n\nCustomer Collaboration over contract negotiation.\n\nResponding To Change over following a plan.\n", Hidden: false}
-	desk := Entity{Name: "desk", Description: "You approach the desk and spot a messy pile of dirty plates, stacked haphazardly. You think to yourself that somebody was too lazy to load the dishwasher.\nThe stack is too heavy to carry all the plates at once, and taking plates from the centre or bottom of the stack could pose a risk...\n\n(stack of plates can now be found in the room)\n\n", Hidden: true}
-	dishwasher := Entity{Name: "dishwasher", Description: "A stainless steel dishwasher sits quietly in the corner, its door slightly ajar.\nThe faint scent of soap lingers, and the racks inside are half-empty, waiting for the next load of dirty dishes to be placed inside.\nIt hums faintly, as if anticipating the task it was built for.", Hidden: true}
-	firstPlate := Item{Name: "first-plate", Description: "The plate on top of the stack.", Weight: 6, Hidden: true}
-	secondPlate := Item{Name: "second-plate", Description: "The second plate of the stack.", Weight: 6, Hidden: true}
-	thirdPlate := Item{Name: "third-plate", Description: "The third plate of the stack.", Weight: 6, Hidden: true}
-	fourthPlate := Item{Name: "fourth-plate", Description: "The fourth plate of the stack.", Weight: 6, Hidden: true}
-	fifthPlate := Item{Name: "fifth-plate", Description: "The fifth plate of the stack.", Weight: 6, Hidden: true}
-	sixthPlate := Item{Name: "sixth-plate", Description: "The plate at the bottom of the stack.", Weight: 6, Hidden: true}
-	terminal := Entity{Name: "terminal", Description: "A sleek terminal sits on the desk, its screen displaying lines of code and system commands.\nThe keyboard, slightly worn, hints at frequent use.\nThis device is essential for executing tasks and accessing the building's network.\n\nEnter your commands below or type 'leave' to exit the terminal.\n\n", Hidden: true}
-	dan := Entity{Name: "dan", Description: "Congratulations on making it this far! I must say, I'm genuinely impressed. It appears I'm your final boss — muahahaha!\n...Oh, pardon my theatrics. Now, listen closely: the terminal holds the secret instructions to escape the building.\nYou only need two commands to access them.\nLook around the building to find some clues...\nYes, I know, this is actually the easiest task so far. If I am being totally honest, we just want to be done by 4pm...\nWhat are you standing there for? Get to it!\n", Hidden: true}
-	cd := Item{Name: "cd", Description: "A compact disc with '\\secret-files' written on it in bold letters.\nIt almost seems to call out to you, hinting at hidden knowledge.", Weight: 1, Hidden: false}
-	cat := Entity{Name: "cat", Description: "On one of the chairs, a fluffy cat lounges lazily, wearing a collar with a name tag that reads 'unlock-exits-instructions.txt'\n\nAn odd name for a cat. You get the feeling that this feline is more than it seems, possibly guarding crucial information", Hidden: false}
+	rosie := structs.Entity{Name: "rosie", Description: "Ugh, what? Sorry, I can't think straight without a brew. Get me some tea, and then we'll talk...", Hidden: false}
+	kettle := structs.Entity{Name: "kettle", Description: "You set the kettle to boil, brewing the strongest cup of tea you've ever made. A comforting aroma fills the room as the tea is now ready.\n\n(tea can now be found in the room)\n", Hidden: false}
+	sofa := structs.Entity{Name: "sofa", Description: "You come across one of your fellow academy students fast asleep on the sofa. Next to them, their lanyard lies carelessly within reach.\nYou know you shouldn't take it, but the temptation lingers...\n\n(abandoned-lanyard can now be found in the room)\n", Hidden: false}
+	tea := structs.Item{Name: "tea", Description: "A steaming cup of Yorkshire tea, rich and comforting.", Weight: 2, Hidden: true}
+	lanyard := structs.Item{Name: "lanyard", Description: "Your lanyard, a key to unlocking any door within the building.", Weight: 1, Hidden: true}
+	abandonedLanyard := structs.Item{Name: "abandoned-lanyard", Description: "An abandoned lanyard, a key to unlocking any door within the building.", Weight: 1, Hidden: true}
+	computer := structs.Entity{Name: "computer", Description: "Alan's computer. You need the password to get in.\n\nRemaining attempts: 10.\n\nType 'leave' to stop entering the password.\n\nEnter the password:\n", Hidden: false}
+	alan := structs.Entity{Name: "alan", Description: "Oh, you've finally made it... What are you waiting for, crack on with the code. The computer is right there...\nWhat's that? You don't know the password? Hmm... I seem to have forgotten it myself, but I do recall it's nine letters long.\nAnd for the love of all that's good, it's definitely not 'waterfall'!", Hidden: false}
+	agileManifesto := structs.Entity{Name: "agile-manifesto", Description: "A large, framed document hangs prominently on the wall, its edges slightly frayed\nYou can almost feel the energy of past brainstorming sessions in the air as you read the four key values:\n\nIndividuals and Interactions over processes and tools.\n\nWorking Software over comprehensive documentation.\n\nCustomer Collaboration over contract negotiation.\n\nResponding To Change over following a plan.\n", Hidden: false}
+	desk := structs.Entity{Name: "desk", Description: "You approach the desk and spot a messy pile of dirty plates, stacked haphazardly. You think to yourself that somebody was too lazy to load the dishwasher.\nThe stack is too heavy to carry all the plates at once, and taking plates from the centre or bottom of the stack could pose a risk...\n\n(stack of plates can now be found in the room)\n\n", Hidden: true}
+	dishwasher := structs.Entity{Name: "dishwasher", Description: "A stainless steel dishwasher sits quietly in the corner, its door slightly ajar.\nThe faint scent of soap lingers, and the racks inside are half-empty, waiting for the next load of dirty dishes to be placed inside.\nIt hums faintly, as if anticipating the task it was built for.", Hidden: true}
+	firstPlate := structs.Item{Name: "first-plate", Description: "The plate on top of the stack.", Weight: 6, Hidden: true}
+	secondPlate := structs.Item{Name: "second-plate", Description: "The second plate of the stack.", Weight: 6, Hidden: true}
+	thirdPlate := structs.Item{Name: "third-plate", Description: "The third plate of the stack.", Weight: 6, Hidden: true}
+	fourthPlate := structs.Item{Name: "fourth-plate", Description: "The fourth plate of the stack.", Weight: 6, Hidden: true}
+	fifthPlate := structs.Item{Name: "fifth-plate", Description: "The fifth plate of the stack.", Weight: 6, Hidden: true}
+	sixthPlate := structs.Item{Name: "sixth-plate", Description: "The plate at the bottom of the stack.", Weight: 6, Hidden: true}
+	terminal := structs.Entity{Name: "terminal", Description: "A sleek terminal sits on the desk, its screen displaying lines of code and system commands.\nThe keyboard, slightly worn, hints at frequent use.\nThis device is essential for executing tasks and accessing the building's network.\n\nEnter your commands below or type 'leave' to exit the terminal.\n\n", Hidden: true}
+	dan := structs.Entity{Name: "dan", Description: "Congratulations on making it this far! I must say, I'm genuinely impressed. It appears I'm your final boss — muahahaha!\n...Oh, pardon my theatrics. Now, listen closely: the terminal holds the secret instructions to escape the building.\nYou only need two commands to access them.\nLook around the building to find some clues...\nYes, I know, this is actually the easiest task so far. If I am being totally honest, we just want to be done by 4pm...\nWhat are you standing there for? Get to it!\n", Hidden: true}
+	cd := structs.Item{Name: "cd", Description: "A compact disc with '\\secret-files' written on it in bold letters.\nIt almost seems to call out to you, hinting at hidden knowledge.", Weight: 1, Hidden: false}
+	cat := structs.Entity{Name: "cat", Description: "On one of the chairs, a fluffy cat lounges lazily, wearing a collar with a name tag that reads 'unlock-exits-instructions.txt'\n\nAn odd name for a cat. You get the feeling that this feline is more than it seems, possibly guarding crucial information", Hidden: false}
 
 	staffRoom.Items[tea.Name] = &tea
 	staffRoom.Items[lanyard.Name] = &lanyard
@@ -446,9 +116,9 @@ func main() {
 
 	IsFirstCommand := false
 
-	player := Player{
+	player := structs.Player{
 		CurrentRoom:     &staffRoom,
-		Inventory:       make(map[string]*Item),
+		Inventory:       make(map[string]*structs.Item),
 		AvailableWeight: 20,
 		CurrentEntity:   nil,
 	}
@@ -464,7 +134,7 @@ func main() {
 
 		if player.CurrentEntity != nil && player.CurrentEntity.Name == "kettle" {
 			tea.Hidden = false
-			kettle.SetDescription("A kettle — essential for survival, impossible to function without one nearby.");
+			kettle.SetDescription("A kettle — essential for survival, impossible to function without one nearby.")
 		}
 
 		if player.CurrentEntity != nil && player.CurrentEntity.Name == "desk" {
@@ -477,7 +147,7 @@ func main() {
 			desk.SetDescription("Despite the disarray, it's clear this desk sees frequent use, with just enough space left to get work done.")
 		}
 
-		for _, validInteraction := range validInteractions {
+		for _, validInteraction := range structs.ValidInteractions {
 			if validInteraction.Event.Description == "get-your-lanyard" && validInteraction.Event.Triggered {
 				lanyard.Hidden = false
 				rosie.SetDescription("Can I help with anything else?")
@@ -485,7 +155,7 @@ func main() {
 		}
 
 		dishwasherLoaded := true
-		for _, validInteraction := range validInteractions {
+		for _, validInteraction := range structs.ValidInteractions {
 			if strings.HasSuffix(validInteraction.ItemName, "plate") && !validInteraction.Event.Triggered {
 				dishwasherLoaded = false
 				break
@@ -503,22 +173,21 @@ func main() {
 
 		if _, ok := player.Inventory["abandoned-lanyard"]; ok {
 			player.TriggerEvent(grumpyRosie)
-			gameOver = true
+			globalgame.GameOver = true
 		}
 
-		if gameOver {
+		if globalgame.GameOver {
 			fmt.Println("Thank you for playing!")
 			break
 		}
 
 		if !introductionShown {
-			clearScreen()
+			globalgame.ClearScreen()
 			fmt.Println(introduction)
 			introductionShown = true
 		}
 
 		fmt.Print("Enter command: ")
-
 
 		if scanner.Scan() {
 			input := scanner.Text()
@@ -526,21 +195,19 @@ func main() {
 			input = strings.ToLower(input)
 
 			if input == "exit" {
-				clearScreen()
+				globalgame.ClearScreen()
 				fmt.Println("Thank you for playing!")
 				break
 			}
 
-			
-
 			if isAttemptingPassword {
-				if remainingPasswordAttempts == 1 && input != computerPassword{
-					clearScreen()
+				if remainingPasswordAttempts == 1 && input != computerPassword {
+					globalgame.ClearScreen()
 					fmt.Println("Alan's computer is locked, halting your progress in the challenge. To top it off, you've made Rosie grumpy, as she'll now have to take the computer to IT.\n\nThank you for playing!")
 					break
 				}
 				if input == computerPassword {
-					clearScreen()
+					globalgame.ClearScreen()
 					player.TriggerEvent(unlockComputer)
 					computer.SetDescription("function completeTask(pile)\n   if pile == 0:\n      return 'Task Complete'\n   else:\n      completeTask(pile - 1)\n")
 					alan.SetDescription("You've cracked the password! Impressive work... You should now see an open file containing a recursive function.\n\nFollow its instructions carefully, and you'll be one step closer to victory!\nBut, a word of caution: the task ahead is, well, a bit more hands-on than you might expect...")
@@ -549,9 +216,9 @@ func main() {
 					dishwasher.Hidden = false
 				} else if input == "leave" {
 					isAttemptingPassword = false
-					} else {
+				} else {
 					remainingPasswordAttempts--
-					clearScreen()
+					globalgame.ClearScreen()
 					fmt.Printf("Incorrect password. Try again, or type 'leave' to stop entering the password.\n\nRemaining attempts: %d\n\n", remainingPasswordAttempts)
 					computer.SetDescription(fmt.Sprintf("Alan's computer. You need the password to get in.\nRemaining attempts: %d.\nType 'leave' to stop entering the password.\n\nEnter the password:\n", remainingPasswordAttempts))
 					continue
@@ -561,38 +228,36 @@ func main() {
 			if isAttemptingTerminal {
 				if input == "leave" {
 					isAttemptingTerminal = false
-					clearScreen()
+					globalgame.ClearScreen()
 					player.Leave()
 					continue
 				}
-			
+
 				if !IsFirstCommand {
 					if input == "cd /secret-files" {
-						clearScreen()
+						globalgame.ClearScreen()
 						fmt.Println("The terminal displays:\n\n/secret-files/\n\nIt looks like you are on the right track.\nEnter the final command to win the game!\n\nType 'leave' to stop entering commands on the terminal.")
 						IsFirstCommand = true
 						terminal.SetDescription("A sleek terminal sits on the desk, its screen displaying lines of code and system commands.\nThe keyboard, slightly worn, hints at frequent use.\nThis device is essential for executing tasks and accessing the building's network.\n\nEnter your commands below or type 'leave' to exit the terminal.\n\nThe terminal displays:\n\n/secret-files/\n\nIt looks like you are on the right track.\nEnter the final command to win the game!\n\nType 'leave' to stop entering commands on the terminal.\n")
 						continue
 					} else {
-						clearScreen()
+						globalgame.ClearScreen()
 						fmt.Printf("The terminal displays:\n\nbash: %s: command not found\n\nType 'leave' to stop entering commands on the terminal\n\n", input)
 						continue
 					}
 				} else {
 					if input == "cat unlock-exits-instructions.txt" {
-						clearScreen()
+						globalgame.ClearScreen()
 						fmt.Println("As you execute the final command, the terminal whirs to life, and the screen fills with a flurry of colorful text.\nThe words 'Victory Achieved!' flash across the display, illuminating your face with a soft glow.\nYou feel a rush of adrenaline as the file containing the instructions to unlock the exits appears before you.\nFollowing the instructions carefully, you swiftly input the necessary commands, and with a satisfying beep, the locks on the exits click open.\nThe room is filled with the sound of machinery grinding to a halt as the doors swing wide.")
-						gameOver = true
+						globalgame.GameOver = true
 						continue
 					} else {
-						clearScreen()
+						globalgame.ClearScreen()
 						fmt.Printf("The terminal displays:\n\nbash: %s: command not found\n\nType 'leave' to stop entering commands on the terminal\n\n", input)
 						continue
 					}
 				}
 			}
-			
-			
 
 			parts := strings.Fields(input)
 			if len(parts) == 0 {
@@ -604,47 +269,47 @@ func main() {
 
 			switch command {
 			case "commands":
-				clearScreen()
+				globalgame.ClearScreen()
 				showCommands()
 			case "look":
-				clearScreen()
+				globalgame.ClearScreen()
 				player.ShowRoom()
 			case "take":
-				clearScreen()
+				globalgame.ClearScreen()
 				if len(args) > 0 {
 					player.Take(args[0])
 				} else {
 					fmt.Println("Specify an item to take.")
 				}
 			case "drop":
-				clearScreen()
+				globalgame.ClearScreen()
 				if len(args) > 0 {
 					player.Drop(args[0])
 				} else {
 					fmt.Println("Specify an item to drop.")
 				}
 			case "inventory":
-				clearScreen()
+				globalgame.ClearScreen()
 				player.ShowInventory()
 			case "approach":
-				clearScreen()
+				globalgame.ClearScreen()
 				if len(args) > 0 {
 					player.Approach(args[0])
 
 					if !unlockComputer.Triggered {
 						if player.CurrentEntity != nil && player.CurrentEntity.Name == "computer" {
 							isAttemptingPassword = true
+						}
 					}
-                }
-				if player.CurrentEntity != nil && player.CurrentEntity.Name == "terminal" {
-					isAttemptingTerminal = true
-				}
-                
+					if player.CurrentEntity != nil && player.CurrentEntity.Name == "terminal" {
+						isAttemptingTerminal = true
+					}
+
 				} else {
 					fmt.Println("Specify an entity to approach.")
 				}
 			case "use":
-				clearScreen()
+				globalgame.ClearScreen()
 				if len(args) > 0 {
 					if player.CurrentEntity == nil {
 						player.Use(args[0], "unspecified_entity")
@@ -655,10 +320,10 @@ func main() {
 					fmt.Println("Specify an item to use.")
 				}
 			case "leave":
-				clearScreen()
+				globalgame.ClearScreen()
 				player.Leave()
 			case "move":
-				clearScreen()
+				globalgame.ClearScreen()
 				if _, ok := player.Inventory["lanyard"]; ok {
 					if len(args) > 0 {
 						player.Move(args[0])
@@ -669,15 +334,14 @@ func main() {
 					fmt.Println("Doors are shut for you if you don't have a lanyard.")
 				}
 			case "map":
-				clearScreen()
+				globalgame.ClearScreen()
 				player.ShowMap()
 			case computerPassword:
 				continue
 			default:
-					clearScreen()
-					fmt.Println("Unknown command:", command)
+				globalgame.ClearScreen()
+				fmt.Println("Unknown command:", command)
 			}
 		}
 	}
 }
-
